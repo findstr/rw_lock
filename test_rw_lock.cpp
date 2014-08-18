@@ -5,70 +5,89 @@
 #include <Windows.h>
 #include <time.h>
 #include "rw_lock.h"
+#include "assist.h"
+
 #define USE_RW_LOCK     1
 
 struct test {
-        int current;
-        int buff[1024];
+        volatile int current;
+        volatile int buff[1024];
 } buff;
 
+HANDLE hMutex;
 struct rw_lock lock;
 
 DWORD WINAPI read_thread(LPVOID lp)
 {
+        unsigned long cnt = (unsigned long) 0x1ffff;
         struct test *t = (struct test *)lp;
 
-        while (1) {
-                rwlock_get_read(&lock, 1000000);
+        while (cnt-- > 0) {
+#if USE_RW_LOCK
+                rwlock_get_read(&lock, 0x7fffffff);
+#else
+                WaitForSingleObject(hMutex, INFINITE);
+#endif
                 if (t->buff[t->current] == 1) {
-                        printf("--->read--curr index%d<---\n", t->current);
+                        //printf("--->read--curr index%d<---\n", t->current);
                 } else {
                         printf("--->read--occurs error<---\n");
                         system("PAUSE");
  
                 }
-
+#if USE_RW_LOCK
                 rwlock_put_read(&lock);
+#else
+                ReleaseMutex(hMutex);
+#endif
 
-                Sleep(1);
+                //Sleep(1);
         }
+
+        return 0;
 }
 
 DWORD WINAPI write_thread(LPVOID lp)
 {
+        unsigned long cnt = (unsigned long) 0xf;
         struct test *t = (struct test *)lp;
-        while (1) {
-                rwlock_get_write(&lock, 1000);
-                
+        while (cnt-- > 0) {
+#if USE_RW_LOCK
+                rwlock_get_write(&lock, 0x7fffffff);
+#else
+                WaitForSingleObject(hMutex, INFINITE);
+#endif
                 t->buff[t->current] = 0;
-                Sleep(2);
+                //Sleep(2);
                 t->current = rand() % 1024;
-                Sleep(2);
+                //Sleep(2);
                 t->buff[t->current]++;
 
-                printf("--->write--curr index%d<---\n", t->current);
-
+                //printf("--->write--curr index%d<---\n", t->current);
+#if USE_RW_LOCK
                 rwlock_put_write(&lock);
-                Sleep(8);
+#else
+                ReleaseMutex(hMutex);
+#endif
+                //Sleep(8);
 
         }
+        return 0;
 }
 
 
-int rt_begin()
+HANDLE rt_begin()
 {
         HANDLE hThread = CreateThread(NULL, 0, read_thread, &buff, 0, NULL);
-	CloseHandle(hThread);
 
-        return 0;
+        return hThread;
 }
 
-int wt_begin()
+HANDLE wt_begin()
 {
         HANDLE hThread = CreateThread(NULL, 0, write_thread, &buff, 0, NULL);
-	CloseHandle(hThread);
 
-        return 0;
+        return hThread;
 }
 
 static int init()
@@ -80,37 +99,35 @@ static int init()
 
         rwlock_init(&lock);
 
+        hMutex = CreateMutex(NULL, FALSE, NULL);
+
         return 0;
 }
-
-#if USE_RW_LOCK
-
-
-
 int _tmain(int argc, _TCHAR* argv[])
 {
+        int i;
+        HANDLE htbl[64];
+
         init();
+ 
+        CACL_TAKES_TIME_BEGIN(tt);
 
-        for (int i = 0; i < 64; i++)
-                rt_begin();
+        for (i = 0; i < 62; i++)
+                htbl[i] = rt_begin();
 
-        wt_begin();
-        wt_begin();
+        htbl[i++] = wt_begin();
+        htbl[i++] = wt_begin();
 
+        DWORD ret = WaitForMultipleObjects(64, htbl, TRUE, INFINITE);
 
+        int takes = CACL_TAKES_TIME_END(tt);
+
+        printf("-------takes %d ms\n", takes);
+
+        system("pause");
         while (1)
                 Sleep(10000);
 
 	return 0;
 }
-
-#else
-
-int _tmain(int argc, _TCHAR* argv[])
-{
-	return 0;
-}
-
-
-#endif
 
