@@ -54,8 +54,10 @@ int rwlock_get_write(struct rw_lock *lock, int retry)
 	} else {
 		assert(write_cnt > 1);
 		/* other thread have preemptive the write lock, wait it */
-		while (lock->write_ref_cnt > 1)
+		while (lock->write_ref_cnt > 1 && retry) {
+			retry--;
 			Sleep(0);
+		}
 		__unlock__(lock);
 	}
 
@@ -64,7 +66,7 @@ int rwlock_get_write(struct rw_lock *lock, int retry)
 			break;
 
                 retry--;
-                Sleep(1);
+                Sleep(0);
         }
 
         if (retry <= 0) {
