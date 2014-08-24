@@ -2,6 +2,7 @@
 //
 
 #include "stdafx.h"
+#include <assert.h>
 #include <Windows.h>
 #include <time.h>
 #include "rw_lock.h"
@@ -19,17 +20,22 @@ struct rw_lock lock;
 
 DWORD WINAPI read_thread(LPVOID lp)
 {
+	int ret;
         unsigned long cnt = (unsigned long) 0x1ffff;
         struct test *t = (struct test *)lp;
 
         while (cnt-- > 0) {
 #if USE_RW_LOCK
-                rwlock_get_read(&lock, 0x7fffffff);
+                ret = rwlock_get_read(&lock, 0x7fffffff);
+		assert(ret == 0);
 #else
                 WaitForSingleObject(hMutex, INFINITE);
 #endif
                 if (t->buff[t->current] == 1) {
-                        //printf("--->read--curr index%d<---\n", t->current);
+			static unsigned long cnt = 0;
+			if (t->current != cnt)
+				printf("--->read--curr index%d<---\n", t->current);
+			cnt = t->current;
                 } else {
                         printf("--->read--occurs error<---\n");
                         system("PAUSE");
@@ -49,18 +55,20 @@ DWORD WINAPI read_thread(LPVOID lp)
 
 DWORD WINAPI write_thread(LPVOID lp)
 {
+	int ref;
         unsigned long cnt = (unsigned long) 0xf;
         struct test *t = (struct test *)lp;
         while (cnt-- > 0) {
 #if USE_RW_LOCK
-                rwlock_get_write(&lock, 0x7fffffff);
+                ref = rwlock_get_write(&lock, 0x7fffffff);
+		assert(ref == 0);
 #else
                 WaitForSingleObject(hMutex, INFINITE);
 #endif
                 t->buff[t->current] = 0;
                 //Sleep(2);
                 t->current = rand() % 1024;
-                //Sleep(2);
+                Sleep(2);
                 t->buff[t->current]++;
 
                 //printf("--->write--curr index%d<---\n", t->current);
@@ -69,8 +77,7 @@ DWORD WINAPI write_thread(LPVOID lp)
 #else
                 ReleaseMutex(hMutex);
 #endif
-                //Sleep(8);
-
+		Sleep(100);
         }
         return 0;
 }
@@ -112,12 +119,14 @@ int _tmain(int argc, _TCHAR* argv[])
  
         CACL_TAKES_TIME_BEGIN(tt);
 
-        for (i = 0; i < 62; i++)
+       for (i = 0; i < 61; i++)
                 htbl[i] = rt_begin();
 
-        htbl[i++] = wt_begin();
-        htbl[i++] = wt_begin();
+       htbl[i++] = wt_begin();
+	htbl[i++] = wt_begin();
+	htbl[i++] = wt_begin();
 
+ 
         DWORD ret = WaitForMultipleObjects(64, htbl, TRUE, INFINITE);
 
         int takes = CACL_TAKES_TIME_END(tt);

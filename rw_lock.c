@@ -4,7 +4,7 @@
 
 static int __lock__(struct rw_lock *lock)
 {
-        while (InterlockedCompareExchange(&lock->lock, 1, 0) == 0)
+        while(InterlockedCompareExchange(&lock->lock, 1, 0) != 0)
                 Sleep(0);
 
         return 0;
@@ -31,16 +31,34 @@ int rwlock_get_write(struct rw_lock *lock, int retry)
 {
 	unsigned long write_cnt;
         assert(lock);
-	__lock__(lock);
-        write_cnt = InterlockedIncrement(&lock->write_ref_cnt);
-	__unlock__(lock);
-	
-	assert(write_cnt >= 1);
 
-	if (write_cnt > 1) {	/* other thread have preemptive the write lock, wait it */
+	while (retry) {
+                if (lock->write_ref_cnt <= 1) {
+                        __lock__(lock);
+                        if (lock->write_ref_cnt <= 1)
+                                break;
+                        else
+                                __unlock__(lock);
+                }
+		Sleep(0);
+                retry--;
+        }
+
+        if (retry <= 0)
+                return -1;
+
+        write_cnt = InterlockedIncrement(&lock->write_ref_cnt);
+	if (write_cnt <= 1) {
+		assert(write_cnt >=  0);
+		__unlock__(lock);
+	} else {
+		assert(write_cnt > 1);
+		/* other thread have preemptive the write lock, wait it */
 		while (lock->write_ref_cnt > 1)
 			Sleep(0);
+		__unlock__(lock);
 	}
+
         while (retry) {
                 if (lock->read_ref_cnt == 0)
 			break;
@@ -80,7 +98,7 @@ int rwlock_get_read(struct rw_lock *lock, int retry)
                                 __unlock__(lock);
                 }
                 retry--;
-                Sleep(1);
+                Sleep(0);
         }
 
         if (retry <= 0)
